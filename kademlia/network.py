@@ -1,4 +1,4 @@
-import hashlib, random, asyncio, uvloop
+import hashlib, random, asyncio, uvloop, heapq
 from aiorpc import register, serve, RPCClient
 
 from kademlia.node import Node
@@ -26,7 +26,6 @@ class Network:
             ret = await client.call(func.func_name, *args)
         return ret
 
-
     async def bootstrap(self, nodes):
         nodes = await asyncio.gather(*list(map(lambda addr: await self.client(self.ping, self.node.id, addr), nodes)))
         return await self.client(self.find, nodes)
@@ -34,21 +33,32 @@ class Network:
     async def ping(self, id, ip, port):
         return self.node.id
 
+    async def find_node(self, node, id):
+        return node.kbuckets.find_neighbours(node, self.k)
 
-    async def find_node(self, id):
-        pass
-
-
-    async def find_value(self, key):
-        pass
-
+    async def find_value(self, node, key):
+        for node in node.kbuckets.find_neighbours(node, self.k):
+            if node[key]:
+                return node[key]
+        return node.kbuckets.find_neighbours(node, self.k)
 
     async def store(self, key, value):
         self.node.store(key, value)
         return True
 
-    async def find(self, nodes):
-        pass
+    async def find(self, nodes, func, *args):
+        while True:
+            closest = None
+            shortlist =  []
+            contacts = []
+            for node in self.node.kbuckets.find_neighbours(self.node, self.alpha):
+                heapq.heappush(shortlist, (node.distance_to(self.node), node))
+            shortlist.append(await asyncio.gather(*[getattr(self, func)(node, *args) for node in heapq.nsmallest(self.alpha, shortlist)]))
+            if closest == heapq.nsmallest(1, shortlist) or contacts.__len__ == self.k:
+                break
+            else:
+                contacts.append(closest)
+                closest = heapq.nsmallest(1, shortlist)
 
     async def get(self, key):
         key = hashlib.sha1(key).digest()

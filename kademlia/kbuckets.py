@@ -12,7 +12,6 @@ class KBuckets:
             self.split_bucket(index)
         self.buckets[index].add(node)
 
-
     def find_bucket(self, node):
         for index, bucket in enumerate(self.buckets):
             if node.num_id < bucket.upper:
