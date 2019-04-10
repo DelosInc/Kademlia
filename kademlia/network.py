@@ -58,7 +58,7 @@ class Network:
             contacts = []
             for node in self.node.kbuckets.find_neighbours(self.node, self.alpha):
                 heapq.heappush(shortlist, (node.distance_to(self.node), node))
-            shortlist.append(await asyncio.gather(*[getattr(self, func)(node, *args) for node in heapq.nsmallest(self.alpha, shortlist)]))
+            shortlist.append(await asyncio.gather(*list(map(lambda node: await self.client(func, *args), heapq.nsmallest(self.alpha, shortlist)))))
             if closest == heapq.nsmallest(1, shortlist) or len(contacts) == self.k:
                 break
             else:
