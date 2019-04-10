@@ -23,30 +23,35 @@ class Network:
 
     async def client(self, addr, func, *args):
         async with RPCClient(addr[0], addr[1]) as client:       #TODO: test and fix problem with context managed RPCClient
-            ret = await client.call(func.func_name, *args)
+            ret = await client.call(func.func_name, self.node, *args)
         return ret
 
-    async def bootstrap(self, nodes):
-        nodes = await asyncio.gather(*list(map(lambda addr: await self.client(self.ping, self.node.id, addr), nodes)))
-        return await self.client(self.find, nodes)
+    async def bootstrap(self, addrs = None):
+        node_ids = await asyncio.gather(*list(map(lambda addr: await self.client(addr, self.ping, self.node), addrs)))
+        nodes = [Node(id, ip, port, self.k) for id, (ip, port) in zip(node_ids, addrs) if id is not None]
+        return await asyncio.gather(*list(map(lambda node: await self.client((node.ip, node.port), self.find, self.find_node, self.node), nodes)))
 
-    async def ping(self, id, ip, port):
+    async def ping(self, node):
+        self.node.kbuckets.add(node)
         return self.node.id
 
-    async def find_node(self, node, id):
-        return node.kbuckets.find_neighbours(node, self.k)
+    async def find_node(self, node, node_to_search):
+        self.node.kbuckets.add(node)
+        return node.kbuckets.find_neighbours(node_to_search, self.k)
 
     async def find_value(self, node, key):
+        self.node.kbuckets.add(node)
         for node in node.kbuckets.find_neighbours(node, self.k):
             if node[key]:
                 return node[key]
         return node.kbuckets.find_neighbours(node, self.k)
 
-    async def store(self, key, value):
+    async def store(self, node, key, value):
+        self.node.kbuckets.add(node)
         self.node.store(key, value)
         return True
 
-    async def find(self, nodes, func, *args):
+    async def find(self, node, func, *args):
         while True:
             closest = None
             shortlist =  []
@@ -61,8 +66,20 @@ class Network:
                 closest = heapq.nsmallest(1, shortlist)
 
     async def get(self, key):
-        key = hashlib.sha1(key).digest()
-        value =  self.node.retrieve(key)
+        value = self.node.retrieve(key)
         if value is None:
-            value = self.client(self.find_value, key)
+            node_to_get = Node(key, k = self.k)
+            nearest = self.node.kbuckets.find_neighbours(node_to_get, self.alpha)
+            results = await asyncio.gather(*list(map(lambda node: await self.client((node.ip, node.port), self.find, self.find_value, key), nearest)))
+            values = list(filter(lambda x: isinstance(x, str), results))
+            if values:
+                return values[0]
+            else:
+                return None
         return value
+
+    async def put(self, value):
+        key = hashlib.sha1(value).digest()
+        node_to_put = Node(key, k = self.k)
+        nearest = self.node.kbuckets.find_neighbours(node_to_put, self.alpha)
+        return await asyncio.gather(*list(map(lambda node: await self.client((node.ip, node.port), self.find, self.store, key, value), nearest)))
