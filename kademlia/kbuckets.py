@@ -55,6 +55,7 @@ class KBucket:
         for node in self.get_nodes():
             bucket = one if node.long_id <= mid else two
             bucket.add(node)
+        return (one, two)
 
 
 class TableTraverser:
