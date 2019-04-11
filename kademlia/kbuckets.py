@@ -60,8 +60,7 @@ class KBucket:
 
 class TableTraverser:
     def __init__(self, table, startNode):
-        index = table.get_bucket_for(startNode)
-        table.buckets[index].touch_last_updated()
+        index = table.find_bucket(startNode)
         self.current_nodes = table.buckets[index].get_nodes()
         self.left_buckets = table.buckets[:index]
         self.right_buckets = table.buckets[(index + 1):]
