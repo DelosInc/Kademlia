@@ -14,6 +14,5 @@ def main():
         data = {"func": input(), "args": input()}
         asyncio.run(to_daemon(args.port, data))
 
-
 if __name__ == "__main__":
     main()

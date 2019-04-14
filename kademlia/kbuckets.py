@@ -57,7 +57,6 @@ class KBucket:
             bucket.add(node)
         return (one, two)
 
-
 class TableTraverser:
     def __init__(self, table, startNode):
         index = table.find_bucket(startNode)
