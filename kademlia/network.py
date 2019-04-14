@@ -1,32 +1,44 @@
-import hashlib, random, asyncio, uvloop, heapq
+import hashlib, random, asyncio, uvloop, heapq, pickle
 from aiorpc import register, serve, RPCClient
 
 from kademlia.node import Node
 
 class Network:
-    def __init__(self, ip, port, addrs = None, k = 20, alpha = 3, id = None):
+    def __init__(self, ip, port, loop, k = 20, alpha = 3, id = None):
         self.k = k
         self.alpha = alpha
+        self.ip = ip
+        self.port = port
+        self.loop = loop
         self.node = Node(hashlib.sha1(str(random.getrandbits(255)).encode('utf8')).digest(), ip, port, k)
-        self.loop = asyncio.get_event_loop()
+
+    async def listen(self, port):
         register("ping", self.ping)
         register("find_value", self.find_value)
         register("find_node", self.find_node)
         register("store", self.store)
-        self.server = asyncio.start_server(serve, '127.0.0.1', 60000, loop = self.loop)
-        asyncio.Task(self.bootstrap(addrs), loop = self.loop)
+        self.loop.run_until_complete(asyncio.start_server(serve, self.ip, self.port, loop=self.loop))
+        self.loop.run_until_complete(asyncio.start_server(self.handle, self.ip, port, loop=self.loop))
+        self.loop.run_forever()
 
-    async def client(self, addr, func, *args):
-        client = RPCClient(addr[0], addr[1])
-        if len(args) != 0:
-            args = (self.node, *args)
-        asyncio.Task(client.call(func.__name__, *args), loop = self.loop)
+    async def handle(self, reader, writer):
+        data = pickle.loads(await reader.read())
+        data = await self.client(data["addr"], data["func"], *data["args"])
+        data = await getattr(self, data["func"])(data["args"])
+        writer.write(pickle.dumps(data))
+        await writer.drain()
 
     async def bootstrap(self, addrs = None):
         if addrs is not None:
             node_ids = await asyncio.gather(*[await self.client(addr, self.ping) for addr in addrs])
             nodes = [Node(id, ip, port, self.k) for id, (ip, port) in zip(node_ids, addrs) if id is not None]
             return await asyncio.gather(*[await self.client((node.ip, node.port), self.find, self.find_node, self.node) for node in nodes])
+
+    async def client(self, addr, func, *args):
+        client = RPCClient(addr[0], addr[1])
+        if len(args) != 0:
+            args = (self.node, *args)
+        return self.loop.run_until_complete(client.call(func.__name__, *args), loop = self.loop)
 
     async def ping(self, node):
         self.node.kbuckets.add(node)
