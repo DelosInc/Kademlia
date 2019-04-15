@@ -2,9 +2,9 @@ import pickle
 from kademlia.kbuckets import KBuckets
 
 class Node:
-    def __init__(self, id, ip = None, port = None, k = None):
+    def __init__(self, id, ip = None, port = None):
         self.id = id
-        self.num_id = int(id.hex(), 16)
+        self.num_id = int(id, 16)
         self.ip = ip
         self.port = port
 

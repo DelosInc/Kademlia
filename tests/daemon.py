@@ -17,5 +17,7 @@ if (args.bip, args.bport) == ("0", 0):
     loop.run_until_complete(network.bootstrap())
 else:
     loop.run_until_complete(network.bootstrap([(args.bip, args.bport)]))
+print("Node bootstrapped")
 loop.run_until_complete(network.listen(args.handle))
+print("Daemon listening")
 loop.run_forever()

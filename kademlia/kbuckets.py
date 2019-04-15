@@ -22,7 +22,7 @@ class KBuckets:
         nodes = []
         for neighbor in TableTraverser(self, node):
             if neighbor.id != node.id:
-                heapq.heappush(nodes, (node.distance_to(neighbor), neighbor))
+                heapq.heappush(nodes, (node.distance(neighbor), neighbor))
             if len(nodes) == k:
                 break
         return list(map(operator.itemgetter(1), heapq.nsmallest(k, nodes)))

@@ -12,7 +12,7 @@ class Network:
         self.ip = ip
         self.port = port
         self.loop = loop
-        self.node = Node(hashlib.sha1(str(random.getrandbits(255)).encode('utf8')).digest(), ip, port, k)
+        self.node = Node(hashlib.sha1(str(random.getrandbits(255)).encode('utf8')).hexdigest(), ip, port)
         self.kbuckets = KBuckets(self, k)
         self.storage = Storage()
 
@@ -26,6 +26,7 @@ class Network:
 
     async def handle(self, reader, writer):
         data = pickle.loads(await reader.read())
+        print(data)
         data = await getattr(self, data["func"])(data["args"])
         writer.write(pickle.dumps(data))
         await writer.drain()
@@ -33,49 +34,54 @@ class Network:
     async def bootstrap(self, addrs = None):
         if addrs is not None:
             node_ids = await asyncio.gather(*[await self.client(addr, self.ping) for addr in addrs])
-            nodes = [Node(id, addr[0], addr[1], self.k) for id, addr in zip(node_ids, addrs) if id is not None]
-            return await asyncio.gather(*[await self.client((node.ip, node.port), self.find, self.find_node, self.node) for node in nodes])
+            nodes = [Node(id, addr[0], addr[1]) for id, addr in zip(node_ids, addrs) if id is not None]
+            for node in nodes:
+                self.kbuckets.add(node)
+            await asyncio.gather(*[self.find(node, self.find_node, self.node.serialized()) for node in nodes])
 
     async def client(self, addr, func, *args):
         client = RPCClient(addr[0], addr[1])
         args = (self.node.serialized(), *args)
-        print(args)
-        return self.loop.run_until_complete(await client.call(func.__name__, *args), loop = self.loop)
+        return asyncio.ensure_future(client.call(func.__name__, *args))
 
     async def ping(self, node):
         self.kbuckets.add(Node(node[0], node[1], node[2]))
-        print("pinged")
+        print("Received RPC ping")
         return self.node.id
 
-    async def find_node(self, node, node_to_search):
+    async def find_node(self, node, search_node):
         self.kbuckets.add(Node(node[0], node[1], node[2]))
-        return self.kbuckets.find_neighbours(node_to_search, self.k)
+        print("Received RPC find_node")
+        return self.kbuckets.find_neighbours(Node(search_node[0], search_node[1], search_node[2]), self.k)
 
     async def find_value(self, node, key):
-        self.kbuckets.add(Node(node[0], node[1], node[2]))
+        self.kbuckets.add(node)
         for node in self.kbuckets.find_neighbours(node, self.k):
             if self.storage.retrieve(key):
                 return self.storage.retrieve(key)
         return self.kbuckets.find_neighbours(node, self.k)
 
     async def store(self, node, key, value):
-        self.kbuckets.add(Node(node[0], node[1], node[2]))
+        self.kbuckets.add(node)
         self.storage.store(key, value)
         return True
 
     async def find(self, node, func, *args):
+        closest = None
+        shortlist =  []
+        contacts = []
         while True:
-            closest = None
-            shortlist =  []
-            contacts = []
             for node in self.kbuckets.find_neighbours(self.node, self.alpha):
-                heapq.heappush(shortlist, (node.distance_to(self.node), node))
-            shortlist.append(await asyncio.gather(*[await self.client((node.ip, node.port), func, *args) for node in heapq.nsmallest(self.alpha, shortlist)]))
-            if closest == heapq.nsmallest(1, shortlist) or len(contacts) == self.k:
+                heapq.heappush(shortlist, (node.distance(self.node), node))
+            temp = await asyncio.gather(*[await self.client((node[1].ip, node[1].port), func, *args) for node in heapq.nsmallest(self.alpha, shortlist)])
+            if not temp:
+                for i in temp:
+                    heapq.heappush(shortlist, (i.distance(self.node), i))
+            if closest == shortlist[0][1] or len(contacts) == self.k:
                 break
             else:
+                closest = shortlist[0][1]
                 contacts.append(closest)
-                closest = heapq.nsmallest(1, shortlist)
 
     async def ping_handler(self, ip, port):
         self.client((ip, port), self.ping, self.node)
